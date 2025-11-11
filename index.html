@@ -150,6 +150,18 @@
       text-align: left;
     }
 
+    /* Estilos específicos para columnas numéricas */
+    .tabla-factura td:nth-child(1) { /* CANTIDAD */
+      text-align: center;
+      width: 15%;
+    }
+    
+    .tabla-factura td:nth-child(3), /* VALOR UNIDAD */
+    .tabla-factura td:nth-child(4) { /* VALOR TOTAL */
+      text-align: right;
+      width: 20%;
+    }
+
     .acciones {
       display: flex;
       justify-content: space-between;
@@ -341,10 +353,10 @@
       </thead>
       <tbody id="tabla-body">
         <tr>
-          <td contenteditable></td>
-          <td contenteditable></td>
-          <td contenteditable></td>
-          <td contenteditable></td>
+          <td contenteditable ></td>
+          <td contenteditable data-placeholder="Descripción del producto"></td>
+          <td contenteditable ></td>
+          <td contenteditable ></td>
         </tr>
       </tbody>
     </table>
@@ -353,7 +365,7 @@
       <button id="agregar">+ Agregar fila</button>
       <div class="total-box">
         <label for="total">TOTAL $</label>
-        <input type="number" id="total" readonly>
+        <input type="text" id="total" readonly>
       </div>
     </div>
 
@@ -375,70 +387,98 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script>
+    // Función para formatear números como moneda colombiana
+    function formatoMonedaColombiana(valor) {
+      if (isNaN(valor) || valor === '') return '';
+      return new Intl.NumberFormat('es-CO', {
+        style: 'currency',
+        currency: 'COP',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }).format(valor);
+    }
+
+    // Función para convertir texto formateado a número
+    function textoANumero(texto) {
+      if (!texto) return 0;
+      // Eliminar símbolos de moneda, puntos y espacios, luego convertir a número
+      return parseFloat(texto.replace(/[^\d,-]/g, '').replace(',', '.')) || 0;
+    }
+
+    // Función para aplicar formato de moneda a una celda
+    function aplicarFormatoMoneda(celda) {
+      const valor = textoANumero(celda.textContent);
+      if (valor > 0) {
+        celda.textContent = formatoMonedaColombiana(valor);
+      }
+    }
+
+    // Función para validar entrada numérica
+    function validarEntradaNumerica(event) {
+      // Permitir teclas de control
+      if (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Tab' || 
+          event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || 
+          event.key === 'End') {
+        return;
+      }
+      
+      // Permitir números, punto y coma (para decimales)
+      if (!/[0-9,.]/.test(event.key)) {
+        event.preventDefault();
+        return;
+      }
+      
+      // Evitar múltiples puntos o comas
+      const currentText = event.target.textContent;
+      if ((event.key === '.' || event.key === ',') && 
+          (currentText.includes('.') || currentText.includes(','))) {
+        event.preventDefault();
+      }
+    }
+
+    // Agregar fila a la tabla
     document.getElementById('agregar').addEventListener('click', () => {
       const tabla = document.getElementById('tabla-body');
       const fila = document.createElement('tr');
       fila.innerHTML = `
-        <td contenteditable></td>
-        <td contenteditable></td>
-        <td contenteditable></td>
-        <td contenteditable></td>
+        <td contenteditable data-placeholder=""></td>
+        <td contenteditable data-placeholder="Descripción del producto"></td>
+        <td contenteditable data-placeholder="Ej: 15000"></td>
+        <td contenteditable data-placeholder="Se calcula automáticamente"></td>
       `;
       tabla.appendChild(fila);
+      
+      // Agregar eventos a las nuevas celdas
+      agregarEventosCeldas(fila);
     });
 
-document.getElementById('descargar').addEventListener('click', () => {
-  const factura = document.querySelector('.factura');
-  
-  // Selecciona los elementos a ocultar (botones + selector)
-  const elementosOcultar = document.querySelectorAll('#descargar, #agregar, #tipoDocumentoSelect');
-  // Guarda el display actual para restaurarlo luego
-  const displayPrev = [];
-  elementosOcultar.forEach((el, i) => {
-    displayPrev[i] = el.style.display || '';
-    el.style.display = 'none';
-  });
-
-  const opt = {
-    margin: [5, 0, 5, 0], // 5mm arriba y abajo, 0 a los lados
-    filename: 'Factura_GloboArte.pdf',
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { 
-      scale: 2, 
-      useCORS: true,
-      scrollY: 0,
-      windowHeight: document.querySelector('.factura').scrollHeight
-    },
-    jsPDF: { 
-      unit: 'mm', 
-      format: 'a4', 
-      orientation: 'portrait' 
+    // Agregar eventos a las celdas de una fila
+    function agregarEventosCeldas(fila) {
+      const celdas = fila.querySelectorAll('td');
+      
+      // Celda de cantidad (solo números)
+      celdas[0].addEventListener('keypress', validarEntradaNumerica);
+      
+      // Celda de valor unidad (solo números)
+      celdas[2].addEventListener('keypress', validarEntradaNumerica);
+      
+      // Celda de valor total (solo lectura para cálculos automáticos)
+      celdas[3].addEventListener('focus', function() {
+        this.blur(); // Evitar que el usuario edite directamente esta celda
+      });
+      
+      // Calcular automáticamente cuando se editan las celdas de cantidad o valor unidad
+      celdas[0].addEventListener('input', calcularTotales);
+      celdas[2].addEventListener('input', calcularTotales);
+      
+      // Aplicar formato de moneda al perder el foco
+      celdas[2].addEventListener('blur', function() {
+        aplicarFormatoMoneda(this);
+        calcularTotales();
+      });
     }
-  };
-  
-  html2pdf().set(opt).from(factura).save().then(() => {
-    // Restaurar display de los elementos ocultos
-    elementosOcultar.forEach((el, i) => {
-      el.style.display = displayPrev[i];
-    });
-  }).catch(() => {
-    // En caso de error también los restauramos
-    elementosOcultar.forEach((el, i) => {
-      el.style.display = displayPrev[i];
-    });
-  });
-});
 
-
-    // Fecha actual
-    const today = new Date();
-    document.getElementById('fecha').value = today.toISOString().split('T')[0];
-
-    // Calcular total automáticamente
-    document.addEventListener('input', function(e) {
-      if (e.target.closest('#tabla-body')) calcularTotales();
-    });
-
+    // Calcular totales automáticamente
     function calcularTotales() {
       let total = 0;
       const filas = document.querySelectorAll('#tabla-body tr');
@@ -446,31 +486,118 @@ document.getElementById('descargar').addEventListener('click', () => {
       filas.forEach(fila => {
         const celdas = fila.querySelectorAll('td');
         if (celdas.length === 4) {
-          const cantidad = parseFloat(celdas[0].textContent) || 0;
-          const valorUnidad = parseFloat(celdas[2].textContent) || 0;
+          const cantidad = textoANumero(celdas[0].textContent) || 0;
+          const valorUnidad = textoANumero(celdas[2].textContent) || 0;
           const valorTotal = cantidad * valorUnidad;
+          
           if (!isNaN(valorTotal)) {
-            celdas[3].textContent = valorTotal.toFixed(2);
+            // Actualizar la celda de valor total con formato de moneda
+            celdas[3].textContent = formatoMonedaColombiana(valorTotal);
             total += valorTotal;
           }
         }
       });
-      document.getElementById('total').value = total.toFixed(2);
+      
+      // Actualizar el total general
+      document.getElementById('total').value = formatoMonedaColombiana(total);
     }
 
-    // 🔄 Cambiar entre "Factura" y "Cotización"
-        const tipoDocumentoSelect = document.getElementById('tipoDocumentoSelect');
-        const tituloFactura = document.getElementById('tituloFactura');
+    // Descargar PDF
+    document.getElementById('descargar').addEventListener('click', () => {
+      const factura = document.querySelector('.factura');
+      
+      // Selecciona los elementos a ocultar (botones + selector)
+      const elementosOcultar = document.querySelectorAll('#descargar, #agregar, #tipoDocumentoSelect');
+      // Guarda el display actual para restaurarlo luego
+      const displayPrev = [];
+      elementosOcultar.forEach((el, i) => {
+        displayPrev[i] = el.style.display || '';
+        el.style.display = 'none';
+      });
 
-        tipoDocumentoSelect.addEventListener('change', () => {
-        if (tipoDocumentoSelect.value === 'cotizacion') {
-            tituloFactura.innerHTML = '<span id="tipo-documento">COTIZACIÓN</span>';
-        } else {
-            tituloFactura.innerHTML = '<span id="tipo-documento">FACTURA</span> VENTA N° <span contenteditable>197</span>';
+      const opt = {
+        margin: [5, 0, 5, 0], // 5mm arriba y abajo, 0 a los lados
+        filename: 'Factura_GloboArte.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true,
+          scrollY: 0,
+          windowHeight: document.querySelector('.factura').scrollHeight
+        },
+        jsPDF: { 
+          unit: 'mm', 
+          format: 'a4', 
+          orientation: 'portrait' 
         }
+      };
+      
+      html2pdf().set(opt).from(factura).save().then(() => {
+        // Restaurar display de los elementos ocultos
+        elementosOcultar.forEach((el, i) => {
+          el.style.display = displayPrev[i];
         });
+      }).catch(() => {
+        // En caso de error también los restauramos
+        elementosOcultar.forEach((el, i) => {
+          el.style.display = displayPrev[i];
+        });
+      });
+    });
 
+    // Fecha actual
+    const today = new Date();
+    document.getElementById('fecha').value = today.toISOString().split('T')[0];
 
+    // 🔄 Cambiar entre "Factura" y "Cotización"
+    const tipoDocumentoSelect = document.getElementById('tipoDocumentoSelect');
+    const tituloFactura = document.getElementById('tituloFactura');
+
+    tipoDocumentoSelect.addEventListener('change', () => {
+      if (tipoDocumentoSelect.value === 'cotizacion') {
+          tituloFactura.innerHTML = '<span id="tipo-documento">COTIZACIÓN</span>';
+      } else {
+          tituloFactura.innerHTML = '<span id="tipo-documento">FACTURA</span> VENTA N° <span contenteditable>197</span>';
+      }
+    });
+
+    // Inicializar eventos para la primera fila
+    document.querySelectorAll('#tabla-body tr').forEach(fila => {
+      agregarEventosCeldas(fila);
+    });
+
+    // Mostrar placeholders cuando las celdas están vacías
+    document.addEventListener('DOMContentLoaded', function() {
+      const celdasEditables = document.querySelectorAll('[contenteditable]');
+      
+      celdasEditables.forEach(celda => {
+        const placeholder = celda.getAttribute('data-placeholder');
+        
+        if (placeholder) {
+          // Mostrar placeholder si está vacío
+          if (!celda.textContent.trim()) {
+            celda.textContent = placeholder;
+            celda.style.color = '#999';
+          }
+          
+          // Manejar el foco
+          celda.addEventListener('focus', function() {
+            if (this.textContent === placeholder) {
+              this.textContent = '';
+              this.style.color = '#333';
+            }
+          });
+          
+          // Manejar la pérdida de foco
+          celda.addEventListener('blur', function() {
+            if (!this.textContent.trim()) {
+              this.textContent = placeholder;
+              this.style.color = '#999';
+            }
+          });
+        }
+      });
+    });
   </script>
 </body>
 </html>
